@@ -28,7 +28,6 @@ import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.client.RuneLite;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.plugins.Plugin;
@@ -42,6 +41,8 @@ import org.slf4j.LoggerFactory;
 
 @PluginDescriptor(
 	name = "SwapUtil",
+	internalName = "swaputil",
+	legacyDataDirectory = "swaputil",
 	description = "Tracks currency swaps, partner shares and settlements",
 	tags = {"trade", "swap", "gp", "tracker"}
 )
@@ -64,10 +65,10 @@ public class SwapUtilPlugin extends Plugin
 	private String storageError = "";
 
 	@Override
-	protected void startUp()
+	protected void startUp() throws IOException
 	{
+		store = new LedgerStore(getPluginDirectory(), gson);
 		running = true;
-		store = new LedgerStore(RuneLite.RUNELITE_DIR.toPath().resolve("swaputil"), gson);
 		worker = Executors.newSingleThreadScheduledExecutor(task ->
 		{
 			Thread thread = new Thread(task, "swaputil-storage");

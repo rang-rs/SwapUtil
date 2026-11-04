@@ -2,11 +2,13 @@ package com.swaputil;
 
 import com.google.gson.Gson;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import net.runelite.client.util.Filepath;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -16,18 +18,31 @@ public class LedgerStoreTest
 {
 	@Rule public TemporaryFolder temporary = new TemporaryFolder();
 
+	private static LedgerStore store(Path path)
+	{
+		return new LedgerStore(Filepath.Unchecked.getRooted(path), new Gson());
+	}
+
+	private static Ledger exported(LedgerStore store) throws IOException
+	{
+		try (Reader reader = store.export().openReader())
+		{
+			return new Gson().fromJson(reader, Ledger.class);
+		}
+	}
+
 	@Test
 	public void cachedReaderSeesOtherClientsChangesAndExportsThem() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore reader = new LedgerStore(path, new Gson());
-		LedgerStore writer = new LedgerStore(path, new Gson());
+		LedgerStore reader = store(path);
+		LedgerStore writer = store(path);
 		assertEquals("900", reader.read().rates().buy);
 		writer.update(ledger -> ledger.configure(null, null, null, "950", null));
 		assertEquals("950", reader.read().rates().buy);
 		writer.update(ledger -> LedgerTest.trade(ledger, "Me", 0, 0, 100, "Me"));
 		assertEquals(1, reader.read().trades.size());
-		Ledger exported = new Gson().fromJson(Files.readString(reader.export()), Ledger.class);
+		Ledger exported = exported(reader);
 		assertEquals(1, exported.trades.size());
 		assertEquals("950", exported.rates().buy);
 	}
@@ -36,8 +51,8 @@ public class LedgerStoreTest
 	public void independentRateWritesMergeUnderTheFileLock() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore first = new LedgerStore(path, new Gson());
-		LedgerStore second = new LedgerStore(path, new Gson());
+		LedgerStore first = store(path);
+		LedgerStore second = store(path);
 		first.read();
 		second.read();
 		ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -61,8 +76,8 @@ public class LedgerStoreTest
 	public void twoClientsShareRatesAndDoNotLoseEachOthersWrites() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore first = new LedgerStore(path, new Gson());
-		LedgerStore second = new LedgerStore(path, new Gson());
+		LedgerStore first = store(path);
+		LedgerStore second = store(path);
 		first.update(ledger -> ledger.group = LedgerTest.configured().group);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try
@@ -92,7 +107,7 @@ public class LedgerStoreTest
 	public void failedMutationDoesNotOverwriteRecords() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore store = new LedgerStore(path, new Gson());
+		LedgerStore store = store(path);
 		store.read();
 		String before = Files.readString(path.resolve("ledger.json"));
 		try
@@ -109,7 +124,7 @@ public class LedgerStoreTest
 	public void corruptFileIsNeverReplacedWithAnEmptyLedger() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore store = new LedgerStore(path, new Gson());
+		LedgerStore store = store(path);
 		store.read();
 		Files.writeString(path.resolve("ledger.json"), "broken");
 		try { store.read(); fail(); }
@@ -121,7 +136,7 @@ public class LedgerStoreTest
 	public void incompleteJsonCannotSilentlyResetTheLedger() throws Exception
 	{
 		Path path = temporary.newFolder().toPath();
-		LedgerStore store = new LedgerStore(path, new Gson());
+		LedgerStore store = store(path);
 		Files.writeString(path.resolve("ledger.json"), "{}");
 		try { store.read(); fail(); }
 		catch (IOException expected) { assertTrue(expected.getMessage().contains("untouched")); }
@@ -131,10 +146,10 @@ public class LedgerStoreTest
 	@Test
 	public void exportIncludesArchivedTradesWithoutResettingAnything() throws Exception
 	{
-		LedgerStore store = new LedgerStore(temporary.newFolder().toPath(), new Gson());
+		LedgerStore store = store(temporary.newFolder().toPath());
 		store.update(ledger -> LedgerTest.trade(ledger, "Me", 0, 0, 100, "Me"));
 		store.update(ledger -> ledger.settle(ledger.revision));
-		Ledger exported = new Gson().fromJson(Files.readString(store.export()), Ledger.class);
+		Ledger exported = exported(store);
 		assertEquals(1, exported.trades.size());
 		assertEquals(2, exported.settlements.size());
 		assertEquals(store.read().revision, exported.revision);

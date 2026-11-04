@@ -5,29 +5,29 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import net.runelite.client.util.Filepath;
 
 final class LedgerStore
 {
 	private static final Object PROCESS_LOCK = new Object();
-	private final Path directory;
+	private final Filepath directory;
 	private final Gson gson;
 	private Ledger cached;
-	private BasicFileAttributes cachedAttributes;
+	private long cachedSize;
+	private FileTime cachedModified;
 
-	LedgerStore(Path directory, Gson gson) { this.directory = directory; this.gson = gson; }
+	LedgerStore(Filepath directory, Gson gson) { this.directory = directory; this.gson = gson; }
 	Ledger read() throws IOException { return access(null); }
 	Ledger update(Consumer<Ledger> change) throws IOException { return access(change); }
 
@@ -35,32 +35,35 @@ final class LedgerStore
 	{
 		synchronized (PROCESS_LOCK)
 		{
-			Files.createDirectories(directory);
-			try (FileChannel channel = FileChannel.open(directory.resolve("ledger.lock"),
+			directory.createDirectories();
+			try (FileChannel channel = directory.join("ledger.lock").openFileChannel(
 				StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 				FileLock lock = channel.lock())
 			{
-				Path file = directory.resolve("ledger.json");
-				boolean exists = Files.exists(file);
-				BasicFileAttributes attributes = exists ? Files.readAttributes(file, BasicFileAttributes.class) : null;
-				if (change == null && cached != null && attributes != null
-					&& attributes.size() == cachedAttributes.size()
-					&& attributes.lastModifiedTime().equals(cachedAttributes.lastModifiedTime())
-					&& Objects.equals(attributes.fileKey(), cachedAttributes.fileKey()))
+				Filepath file = directory.join("ledger.json");
+				boolean exists = file.exists();
+				if (change == null && cached != null && exists
+					&& file.size() == cachedSize && file.getLastModifiedTime().equals(cachedModified))
 				{
 					return cached;
 				}
-				Ledger ledger = exists ? decode(Files.readString(file, StandardCharsets.UTF_8)) : new Ledger();
+				Ledger ledger;
+				if (exists)
+				{
+					try (Reader reader = file.openReader()) { ledger = decode(reader); }
+				}
+				else { ledger = new Ledger(); }
 				if (change != null) { change.accept(ledger); ledger.revision++; }
 				if (!exists || change != null) { save(file, ledger); }
-				cachedAttributes = Files.readAttributes(file, BasicFileAttributes.class);
+				cachedSize = file.size();
+				cachedModified = file.getLastModifiedTime();
 				cached = ledger;
 				return ledger;
 			}
 		}
 	}
 
-	private Ledger decode(String json) throws IOException
+	private Ledger decode(Reader json) throws IOException
 	{
 		try
 		{
@@ -117,32 +120,32 @@ final class LedgerStore
 		}
 	}
 
-	private void save(Path file, Ledger ledger) throws IOException
+	private void save(Filepath file, Ledger ledger) throws IOException
 	{
-		Path temporary = Files.createTempFile(directory, "ledger-", ".tmp");
+		Filepath temporary = directory.createTempFile("ledger-", ".tmp");
 		try
 		{
 			byte[] bytes = gson.toJson(ledger).getBytes(StandardCharsets.UTF_8);
-			try (FileChannel out = FileChannel.open(temporary, StandardOpenOption.WRITE))
+			try (FileChannel out = temporary.openFileChannel(StandardOpenOption.WRITE))
 			{
 				ByteBuffer buffer = ByteBuffer.wrap(bytes);
 				while (buffer.hasRemaining()) { out.write(buffer); }
 				out.force(true);
 			}
-			if (Files.exists(file))
+			if (file.exists())
 			{
-				Files.copy(file, directory.resolve("ledger.backup.json"), StandardCopyOption.REPLACE_EXISTING);
+				file.copyTo(directory.join("ledger.backup.json"), StandardCopyOption.REPLACE_EXISTING);
 			}
-			Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+			temporary.moveTo(file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		}
-		finally { Files.deleteIfExists(temporary); }
+		finally { temporary.deleteIfExists(); }
 	}
 
-	Path export() throws IOException
+	Filepath export() throws IOException
 	{
 		Ledger ledger = read();
-		Path file = Files.createTempFile(directory, "swaputil-export-", ".json");
-		Files.writeString(file, gson.toJson(ledger), StandardCharsets.UTF_8);
+		Filepath file = directory.createTempFile("swaputil-export-", ".json");
+		file.write(gson.toJson(ledger));
 		return file;
 	}
 }
