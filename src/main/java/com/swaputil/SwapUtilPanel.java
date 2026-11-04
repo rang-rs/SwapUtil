@@ -98,7 +98,7 @@ final class SwapUtilPanel extends PluginPanel
 		addLine(setup, rateFields);
 		rateFields.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
 		addLine(setup, new JLabel("Group"));
-		addLine(setup, note("Include yourself and your partners. One RSN per line."));
+		addLine(setup, note("Include yourself and your partners, one person per line.\nFor multiple accounts: Rang = hc rang, rang swaps"));
 		group.setLineWrap(true);
 		group.setWrapStyleWord(true);
 		JScrollPane groupScroll = new JScrollPane(group);
