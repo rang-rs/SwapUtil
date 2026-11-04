@@ -35,7 +35,6 @@ import javax.swing.text.DefaultCaret;
 import javax.swing.text.JTextComponent;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
-import net.runelite.client.util.LinkBrowser;
 
 final class SwapUtilPanel extends PluginPanel
 {
@@ -377,13 +376,8 @@ final class SwapUtilPanel extends PluginPanel
 
 	void exported(String path)
 	{
-		String message = "Records saved to:\n" + path;
-		Object[] choices = {"Open folder", "Close"};
-		if (JOptionPane.showOptionDialog(this, message, "Export records", JOptionPane.DEFAULT_OPTION,
-			JOptionPane.PLAIN_MESSAGE, null, choices, choices[1]) == 0)
-		{
-			LinkBrowser.open(new java.io.File(path).getParent());
-		}
+		JOptionPane.showMessageDialog(this, "Records saved to:\n" + path, "Export records",
+			JOptionPane.PLAIN_MESSAGE);
 	}
 
 	private static JPanel column()
